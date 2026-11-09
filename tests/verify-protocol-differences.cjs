@@ -1,0 +1,20 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+// Reuse the actual single-file app with a minimal DOM, never access a channel.
+const html=fs.readFileSync(__dirname+'/../index.html','utf8'),source=fs.readFileSync(__dirname+'/fixtures/protocol-differences.js','utf8');
+assert(html.replace(/\r\n/g,'\n').includes(source.replace(/\r\n/g,'\n').trim()));
+const nodes={};const node=id=>nodes[id]??={value:'',files:[],addEventListener(){},querySelectorAll(){return[]},setAttribute(){}};
+const ctx=vm.createContext({Blob,URL,TextEncoder,Uint8Array,Uint16Array,Uint32Array,DataView,AbortController,performance,crypto:require('node:crypto').webcrypto,atob,setTimeout,clearTimeout,setInterval,clearInterval,document:{getElementById:node},window:{addEventListener(){}},fetch(){throw Error('No requests allowed')}});
+vm.runInContext(html.match(/<script>([\s\S]*?)<\/script>/)[1],ctx);const ev=s=>vm.runInContext(s,ctx);
+node('apiKey').value='private-key';
+ctx.fixture={id:'IMG-first',phase:'done',time:'2026-11-05',config:{channel:'A',baseUrl:'https://a.invalid',model:'test',endpoint:'/v1/images/generations'},sop:{kind:'multi'},request:{},httpStatus:200,interfaceSuccess:true,checks:[],review:{verdict:'pass',actualCost:''},attachments:[],images:[],response:{created:1,data:[{b64_json:'hidden',generation_id:'id1'},{b64_json:'hidden',generation_id:'id2'}],usage:{},background:'opaque',size:'1x1',quality:'medium',output_format:'png',safety_identifier:null,api_key:'private-key'}};
+let fields=ev('protocolDifferences(fixture)');assert.equal(fields.length,4);assert.equal(fields[0].type,'null');assert(fields.some(x=>x.path==='$.data[1].generation_id'));assert(!fields.some(x=>x.sample.includes('private-key')));assert(!fields.some(x=>x.signal));
+ctx.second={...ctx.fixture,id:'IMG-second'};
+const summary=ev('summaryReport([fixture,second])');assert(summary.includes(ev('md("$.data[*].generation_id")')));assert(summary.includes('2／4'));assert(summary.includes('记录观察，无需逐次确认'));
+ctx.fixture.response.warning='partial result';ctx.fixture.response.charged_amount=0.2;ctx.fixture.response.status='degraded';
+fields=ev('protocolDifferences(fixture)');assert.equal(fields.filter(x=>x.signal).length,3);assert(ev('protocolDifferencesHtml(fixture)').includes('重点核查'));
+ctx.fixture.response.warning=null;assert.equal(ev('protocolDifferences(fixture).find(x=>x.path==="$.warning").signal'),false);
+ctx.fixture.response.other='<script>alert(1)</script>';assert(!ev('protocolDifferencesHtml(fixture)').includes('<script>'));
+ctx.fixture.response.metadata={token:'nested-secret'};assert(!ev('JSON.stringify(protocolDifferences(fixture))').includes('nested-secret'));
+assert.equal(ev('state(fixture)'),'通过','Observations must not silently change verdicts');
+ctx.fixture.interfaceSuccess=false;assert.equal(ev('protocolDifferences(fixture).length'),0,'An error response is not an extension success');
+console.log('PASS: field paths/types/null, sensitive redaction, repeated image and record aggregation, risk signals, HTML escaping and unchanged verdicts; no network.');

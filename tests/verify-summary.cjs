@@ -1,0 +1,56 @@
+// Offline summary checks and optional generation from an existing record.json.
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+const html=fs.readFileSync(__dirname+'/../index.html','utf8');
+const source=fs.readFileSync(__dirname+'/fixtures/report-summary.js','utf8');
+assert(html.replace(/\r\n/g,'\n').includes(source.replace(/\r\n/g,'\n').trim()));
+assert(html.replace(/\r\n/g,'\n').includes(fs.readFileSync(__dirname+'/fixtures/error-diagnostics.js','utf8').replace(/\r\n/g,'\n').trim()));
+const nodes={};
+const node=id=>nodes[id]??={value:'',checked:false,disabled:false,files:[],addEventListener(){},querySelectorAll(){return[]},setAttribute(){}};
+const ctx=vm.createContext({console,Blob,URL,TextEncoder,Uint8Array,Uint16Array,Uint32Array,DataView,AbortController,performance,crypto:require('node:crypto').webcrypto,atob,setTimeout,clearTimeout,setInterval,clearInterval,document:{getElementById:node},window:{addEventListener(){}},fetch(){throw Error('Summary must never make requests')}});
+vm.runInContext(html.match(/<script>([\s\S]*?)<\/script>/)[1],ctx);
+const ev=s=>vm.runInContext(s,ctx);
+const record=(id,kind,extra={})=>({id,time:'2026-11-05T00:00:00Z',phase:'done',config:{channel:'A',model:'test',baseUrl:'https://a.invalid',endpoint:'/v1/images/generations',group:''},sop:{kind},interfaceSuccess:true,images:[{width:1536,height:1024}],checks:[{name:'图片 1 · 尺寸匹配',status:'fail',detail:'请求 1024x1024，实际 1536x1024'}],review:{verdict:'pending',actualCost:''},attachments:[],...extra});
+(async()=>{
+ctx.fixture=[record('IMG-a','text'),record('IMG-b','text'),record('IMG-c','moderation',{interfaceSuccess:false,expectedOutcomeMet:true,automaticVerdict:true,checks:[{name:'SOP 审核预期',status:'pass'}],images:[]}),record('IMG-d','multi',{review:{verdict:'na'},checks:[],images:[],interfaceSuccess:false}),record('IMG-e','text',{config:{channel:'B',model:'other',baseUrl:'https://b.invalid',endpoint:'/v1/images/generations'},checks:[{name:'SOP 字段 size',status:'fail',detail:'缺失'}]})];
+const summary=ev('summaryReport(fixture)');
+assert(summary.includes('接口成功 2 条；功能通过 1 条；失败 2 条'));
+assert(summary.includes('涉及 2 条记录'));
+assert(summary.includes('审核拦截符合该用例预期'));
+assert(summary.includes('未执行，不代表支持或不支持'));
+assert(summary.includes('## B · other'));
+assert(summary.includes('失败 0 条；待确认 1 条'));
+assert(summary.includes('(report.md#img-a)'));
+assert(!summary.includes('均已支持'));
+assert(ev('summaryReport([])').includes('暂无'));
+const good=record('IMG-good','basic',{requestUrl:'https://a.invalid/v1/images/generations',request:{model:'test',prompt:'cat',size:'1024x1024'},checks:[]});
+const bad=record('IMG-bad','text',{requestUrl:good.requestUrl,httpStatus:400,interfaceSuccess:false,response:{error:{message:'Invalid request',type:'invalid_request_error'}},request:{model:'test',prompt:'hippo',size:'2848x1600',quality:'medium'},checks:[{name:'HTTP 与接口状态',status:'fail'}]});
+ctx.bad=bad;ctx.good=good;
+let diagnosis=ev('diagnosticFor(bad,[good,bad])');
+assert.equal(diagnosis.certainty,'原因未确定');assert.equal(diagnosis.comparison.changed.length,3);
+assert(diagnosis.hypotheses.some(s=>s.includes('不能从这些记录中锁定单一原因')));
+assert(diagnosis.actions[0].includes('仅将 size'));
+ctx.other={...good,config:{...good.config,model:'other'}};assert.equal(ev('diagnosticFor(bad,[other])').comparison,null);
+ctx.same={...good,request:{...bad.request,size:'1024x1024'}};
+assert(ev('diagnosticFor(bad,[same])').hypotheses.some(s=>s.includes('尚不能确认因果')));
+ctx.special={...bad,response:{error:{message:'size is not supported',param:'size'}}};assert.equal(ev('diagnosticFor(special)').rule,'server-parameter-error');
+ctx.special={...bad,httpStatus:429,response:{error:{message:'No available accounts'}}};diagnosis=ev('diagnosticFor(special)');assert.equal(diagnosis.rule,'no-accounts');assert(diagnosis.hypotheses[0].includes('不能据此认定'));
+ctx.special={...bad,httpStatus:524};assert.equal(ev('diagnosticFor(special)').rule,'timeout');
+ctx.special={...bad,httpStatus:451,expectedOutcomeMet:true};assert.equal(ev('diagnosticFor(special)'),null);
+ctx.special={...bad,httpStatus:200,interfaceSuccess:true,checks:[{name:'透明背景像素',status:'fail',detail:'transparent:0'}]};assert.equal(ev('diagnosticFor(special)').rule,'opaque-image');
+ctx.special={...bad,response:'<script>alert(1)</script>'};assert(!ev('diagnosticHtml(special,[])').includes('<script>'));
+ctx.recordsInput=ctx.fixture;
+ev('records.push(...recordsInput); download=(blob,name)=>{ globalThis.captured={blob,name}; };');
+node('apiKey').value='test-secret';
+await ev("$('export').onclick()");
+assert(ctx.captured, node('notice').textContent);
+const zipBytes=Buffer.from(await ctx.captured.blob.arrayBuffer());
+assert(zipBytes.includes(Buffer.from('summary.md')));assert(zipBytes.includes(Buffer.from('report.md')));assert(zipBytes.includes(Buffer.from('record.json')));
+assert(!zipBytes.includes(Buffer.from('test-secret')));
+ev("$('summary').onclick()");assert.equal(ctx.captured.name,'summary.md');
+if(process.argv[2]){
+  ctx.inputRows=JSON.parse(fs.readFileSync(process.argv[2],'utf8').replace(/^\uFEFF/,''));
+  const result=ev('scrub(summaryReport(inputRows), "")');
+  fs.writeFileSync(process.argv[3]||__dirname+'/../test-output/summary.md',result,'utf8');
+}
+console.log('PASS: grouped evidence, repeated failures, moderation, skipped tests, protocol pending, ZIP inclusion, redaction, standalone download; no network.');
+})().catch(e=>{console.error(e);process.exitCode=1});

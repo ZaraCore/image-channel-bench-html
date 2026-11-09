@@ -1,0 +1,13 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+const source=fs.readFileSync(__dirname+'/fixtures/image-viewer.js','utf8'),html=fs.readFileSync(__dirname+'/../index.html','utf8');assert(html.replace(/\r\n/g,'\n').includes(source.replace(/\r\n/g,'\n')));
+const nodes={},classes=()=>{const set=new Set();return {add:v=>set.add(v),remove:v=>set.delete(v),has:v=>set.has(v)};};
+const node=id=>nodes[id]??={style:{},textContent:'',value:'',classList:classes(),events:{},scrollLeft:0,scrollTop:0,clientWidth:600,clientHeight:400,addEventListener(name,fn){this.events[name]=fn;},removeAttribute(){},setPointerCapture(){}};
+const body={classList:classes()};node('zoomImage').getBoundingClientRect=()=>({left:10-node('zoomStage').scrollLeft,top:10-node('zoomStage').scrollTop,width:parseFloat(node('zoomImage').style.width)||1200,height:(parseFloat(node('zoomImage').style.width)||1200)*2/3});
+node('imageDialog').showModal=function(){this.open=true;};node('imageDialog').close=function(){this.open=false;this.events.close();};
+const ctx=vm.createContext({$:node,document:{body},Math,Number,String});vm.runInContext(source,ctx);
+vm.runInContext('openImage({name:"poster.png",width:1200,height:800,objectUrl:"blob:mock"})',ctx);assert.equal(body.classList.has('image-viewer-open'),true);assert.equal(node('zoomImage').style.width,'600px');
+let prevented=0,stopped=0;ctx.wheel={deltaY:-120,deltaMode:0,clientX:200,clientY:100,preventDefault(){prevented++;},stopPropagation(){stopped++;}};vm.runInContext('viewerWheel(wheel)',ctx);assert(parseFloat(node('zoomImage').style.width)>600);assert.equal(prevented,1);assert.equal(stopped,1);assert.equal(node('zoomScale').value,'custom');assert(node('zoomStage').scrollLeft>0);
+vm.runInContext('zoomTo(1)',ctx);assert.equal(node('zoomImage').style.width,'1200px');vm.runInContext('zoomTo(100)',ctx);assert.equal(node('zoomImage').style.width,'19200px');
+const start=node('zoomStage').scrollLeft;node('zoomStage').events.pointerdown({button:0,pointerId:1,clientX:100,clientY:100,preventDefault(){}});node('zoomStage').events.pointermove({pointerId:1,clientX:150,clientY:120});assert.equal(node('zoomStage').scrollLeft,start-50);node('zoomStage').events.pointerup();assert.equal(node('zoomStage').classList.has('dragging'),false);
+node('closeImage').onclick();assert.equal(body.classList.has('image-viewer-open'),false);assert.equal(node('imageDialog').open,false);
+console.log('PASS viewer: fit, wheel zoom anchored to cursor, default scroll prevention, background lock, percentage selection, clamp, drag pan and cleanup.');

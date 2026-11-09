@@ -1,0 +1,11 @@
+test-output/
+release/
+.env
+.env.*
+*.key
+*.pem
+*.zip
+record.json
+report.md
+summary*.md
+source-integrity.json

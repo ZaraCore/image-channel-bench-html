@@ -1,0 +1,27 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>Image 2.6 离线浏览器检查</title>
+<h1>Image 2.6 离线浏览器检查</h1><p>直接打开此文件。仅调用本地页面的检查函数，不发送渠道请求。</p><pre id="result">等待本地页面加载…</pre>
+<iframe id="app" src="../index.html" hidden></iframe>
+<script>
+document.getElementById('app').onload=()=>{
+const out=document.getElementById('result');
+try{
+const w=document.getElementById('app').contentWindow;
+const assert=(v,m)=>{if(!v)throw Error(m);};
+const svg='<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><path d="M0 0L100 100" stroke="green"/></svg>';
+assert(w.inspectSvg(svg).shapeCount===1,'有效 SVG');
+for(const bad of [svg.replace('<path','<script'),svg.replace('stroke="green"','onclick="alert(1)"'),svg.replace('<path d="M0 0L100 100" stroke="green"/>','<image href="https://example.invalid/x.png"/>'),'<svg xmlns="http://www.w3.org/2000/svg"><path></svg>']){
+let rejected=false;try{w.inspectSvg(bad);}catch{rejected=true;}assert(rejected,'应拒绝无效或非静态矢量内容');}
+for(const model of ['gpt-image-2.5-flare','gpt-image-2.6-sunburst','gpt-image-2.6-flare']){
+w.document.getElementById('model').value=model;w.syncImage26Ui();const modern=model.includes('2.6');
+assert(w.document.getElementById('image26Tests').hidden===!modern,'新测试区切换');
+assert(w.document.getElementById('startSop').closest('section').hidden===false,'常规 SOP 始终可见');
+assert(w.document.getElementById('generatePoster').closest('section').hidden===false,'常规专项测试始终可见');}
+const author=w.document.getElementById('svgModelOptional'),button=w.document.getElementById('runSvg'),saved=author.value;
+assert(author.defaultValue==='gpt-6.1-sol'&&author.required,'默认编写模型和必填属性');
+for(const value of ['', '   ']){author.value=value;author.dispatchEvent(new w.Event('input'));assert(button.disabled,'空白时 SVG 按钮禁用');}
+author.value='gpt-5.6-sol';author.dispatchEvent(new w.Event('input'));assert(!button.disabled,'手动输入模型后 SVG 按钮可用');
+author.value=saved;author.dispatchEvent(new w.Event('input'));
+out.textContent='PASS：真实 DOMParser 的 SVG 结构与异常检查；模型切换后的测试区显示；SVG 编写模型默认值、必填和按钮状态。未发送渠道请求。';
+}catch(e){out.textContent='未通过或浏览器限制本地 iframe 访问：'+e.message+'。若为 file 来源限制，请勿关闭浏览器安全限制；可直接打开 index.html 手动检查模型切换和预览。';}
+};
+</script></html>
