@@ -125,6 +125,7 @@ function matchDiagnosticRules(r,evidence) {
   return diagnosticRules.filter(rule=>(rule.scope==='environment'?environment:!environment&&!r.interfaceSuccess) && rule.pattern.test(rule.scope==='environment'?evidence.localText:evidence.serverText));
 }
 function diagnosticFor(r, history = []) {
+  if(r.config?.protocol==='gemini'&&typeof geminiDiagnosticFor==='function')return geminiDiagnosticFor(r,history);
   if (r.review?.verdict === 'na' || r.expectedOutcomeMet) return null;
   const failed = (r.checks || []).filter(c => c.status === 'fail');
   if (r.interfaceSuccess && !failed.length && !r.error) return null;

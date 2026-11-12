@@ -31,11 +31,11 @@ await ev('channelFetch("https://channel.invalid/v1/images/generations",{method:"
 assert.equal(directCalls.length,1);assert.equal(directCalls[0].url,'https://channel.invalid/v1/images/generations');assert.equal(directCalls[0].options.credentials,'omit');assert.equal(directCalls[0].options.redirect,'error');assert(!Object.keys(directCalls[0].options.headers).some(k=>k.startsWith('X-Bench')));
 const storage=new Map();context.localStorage={setItem:(k,v)=>storage.set(k,v),getItem:k=>storage.get(k)||null,removeItem:k=>storage.delete(k)};
 ev('saveConnection()');const saved=JSON.parse(storage.get('image-bench-static-config-v1'));assert.equal(saved.model,'test-image');assert(!JSON.stringify(saved).includes('sk-TEST-SECRET'));assert(!Object.hasOwn(saved,'apiKey'));assert(!Object.hasOwn(saved,'prompt'));
-const migratedContext=vm.createContext({...context,localStorage:{getItem:()=>JSON.stringify({baseUrl:'https://test.invalid/v1',endpoint:'/images/generations',model:'gpt-image-1'})}});vm.runInContext(script,migratedContext);assert.equal(node('baseUrl').value,'https://test.invalid');assert.equal(node('endpoint').value,'/v1/images/generations');assert.equal(node('model').value,'gpt-image-2');
-assert(html.includes('id="model"><option value="gpt-image-2">'));assert(html.includes('value="gpt-image-2.5-sunburst"'));assert(!html.includes('<input id="model"'));
+const migratedContext=vm.createContext({...context,localStorage:{getItem:()=>JSON.stringify({baseUrl:'https://test.invalid/v1',endpoint:'/images/generations',model:'gpt-image-1'})}});vm.runInContext(script,migratedContext);assert.equal(node('baseUrl').value,'https://test.invalid');assert.equal(node('endpoint').value,'/v1/images/generations');assert.equal(node('model').value,'gpt-image-1');assert.equal(node('gptPreset').value,'custom');
+assert(html.includes('id="gptPreset"'));assert(html.includes('value="gpt-image-2.5-sunburst"'));assert(html.includes('<input id="model"'));
 // Every preset must survive saving and a fresh page load with its exact model ID.
-for(const model of ['gpt-image-2','gpt-image-2.5-sunburst','gpt-image-2.5-flare','gpt-image-2.6-sunburst','gpt-image-2.6-flare']){
-assert(html.includes('value="'+model+'"'));
+for(const model of ['gpt-image-2','gpt-image-2.5-sunburst','gpt-image-2.5-flare','gpt-image-2.6-sunburst','gpt-image-2.6-flare','channel-custom-image']){
+if(model!=='channel-custom-image')assert(html.includes('value="'+model+'"'));
 node('model').value=model;ev('saveConnection()');
 const stored=storage.get('image-bench-static-config-v1');node('model').value='';
 const restoredContext=vm.createContext({...context,localStorage:{getItem:()=>stored}});vm.runInContext(script,restoredContext);

@@ -9,6 +9,7 @@ function protocolField(value, key, parent) {
   return {path:parent+'.'+key,type,sample,signal:!!signal,sensitive};
 }
 function protocolDifferences(r) {
+  if(r.config?.protocol==='gemini')return [];
   if(!r.interfaceSuccess || !r.response || typeof r.response!=='object' || Array.isArray(r.response))return [];
   const root=['created','data','usage','background','output_format','quality','size'];
   const result=Object.keys(r.response).filter(k=>!root.includes(k)).map(k=>protocolField(r.response[k],k,'$'));
